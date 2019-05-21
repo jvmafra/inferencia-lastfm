@@ -1,6 +1,6 @@
 ---
 title: "Implementando ICs"
-author: "Nazareno"
+author: "João Victor Barroso Mafra"
 output:
   html_document:
     theme: readable
@@ -16,6 +16,7 @@ output:
 ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(boot)
 theme_set(theme_bw())
 ```
 
@@ -39,7 +40,160 @@ glimpse(lastfm)
 
 Utilizaremos ICs para estimar duas métricas sobre os usuários do LastFM em geral durante um período de 6 meses. Em ambos os casos faremos isso a partir de uma amostra de 300 usuários. As duas métricas são: 
 
-1. Qual a proporção de novos artistas em geral escutada por usuários?
-2. Para os usuários que gostam de música muito pop (mediana_pop > 5), qual a correlação entre a popularidade mediana dos artistas escutado e a proporção dos artistas escutados que eram novos. 
 
-Crie intervalos com 95% de confiança.
+###1. Qual a proporção de novos artistas em geral escutada por usuários?
+
+```{r}
+amostra <- lastfm %>% mutate(proporcao = news/(old + news))
+```
+
+Definindo funções
+
+```{r}
+
+set.seed(12345)
+
+funcao_theta_proporcao = function(df) {
+  df %>%
+    pull(proporcao) %>%
+    mean()
+}
+
+bootstrap = function(df){
+  proporcoes = df %>% pull(proporcao)
+  boot <- sample(proporcoes,           # amostre dos dados
+                   size = NROW(proporcoes), # tamanho igual ao recebido
+                   replace = TRUE) # aqui é o bootstrap
+  return(mean(boot))
+}
+```
+
+Fazendo as reamostragens com 4000 repetições
+
+```{r}
+set.seed(12345)
+
+theta_c = funcao_theta_proporcao(amostra)
+
+repeticoes = 4000
+
+reamostragens = tibble(i = 1:repeticoes) %>% 
+  mutate(theta_c_s = map_dbl(i, ~ bootstrap(amostra)))
+```
+
+Calculando I.C do erro
+
+```{r}
+intervalo = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c) %>% 
+  summarise(erro_i = quantile(erro, .025), 
+            erro_s = quantile(erro, .975))
+intervalo
+```
+
+Calculando I.C da proporção média
+
+```{r}
+ci = intervalo %>% 
+  mutate(valor_i = theta_c + erro_i, 
+         valor_s = theta_c + erro_s)
+ci
+```
+
+Usando uma função pronta para fazer bootstrap
+
+```{r}
+set.seed(12345)
+funcao_theta_proporcao_index = function(df,i) {
+  df %>%
+    slice(i) %>%
+    pull(proporcao) %>%
+    mean()
+}
+
+booted <- boot(data = amostra, 
+               statistic = funcao_theta_proporcao_index, 
+               R = 4000)
+
+ci.2 = boot.ci(booted, 
+          conf = .95,
+          type = "bca")
+
+ci.2
+```
+
+
+
+### 2. Para os usuários que gostam de música muito pop (mediana_pop > 5), qual a correlação entre a popularidade mediana dos artistas escutado e a proporção dos artistas escutados que eram novos.
+
+Definindo as funções
+
+```{r}
+
+set.seed(12345)
+
+amostra.pop <- amostra %>% filter(mediana_pop > 5)
+
+funcao_theta_cor = function(df) {
+  cor(df$mediana_pop, df$proporcao, method = "spearman")
+}
+
+bootstrap_cor = function(df){
+  boot <- sample_n(df,           # amostre dos dados
+                   size = NROW(df), # tamanho igual ao recebido
+                   replace = TRUE) # aqui é o bootstrap
+  return(cor(boot$mediana_pop, boot$proporcao, method = "spearman"))
+}
+```
+
+Fazendo as reamostragens com 4000 repetições
+
+```{r}
+set.seed(12345)
+
+theta_cor = funcao_theta_cor(amostra.pop)
+
+reamostragens.cor = tibble(i = 1:repeticoes) %>% 
+  mutate(theta_c_s = map_dbl(i, ~ bootstrap_cor(amostra.pop)))
+```
+
+Calculando I.C do erro
+
+```{r}
+intervalo.cor = reamostragens.cor %>% 
+  mutate(erro = theta_c_s - theta_cor) %>% 
+  summarise(erro_i = quantile(erro, .025), 
+            erro_s = quantile(erro, .975))
+intervalo.cor
+```
+
+Calculando I.C da correlação entre as duas variáveis
+
+```{r}
+ci.cor = intervalo.cor %>% 
+  mutate(valor_i = theta_cor + erro_i, 
+         valor_s = theta_cor + erro_s)
+ci.cor
+```
+
+Usando uma função pronta para fazer bootstrap
+
+```{r}
+set.seed(12345)
+funcao_theta_cor_index = function(df,i) {
+  df <- df %>%
+    slice(i) 
+  
+  cor(df$mediana_pop, df$proporcao, method = "spearman")
+}
+
+booted <- boot(data = amostra.pop, 
+               statistic = funcao_theta_cor_index, 
+               R = 4000)
+
+ci.2.cor = boot.ci(booted, 
+          conf = .95,
+          type = "bca")
+
+ci.2.cor
+```
