@@ -43,11 +43,17 @@ Utilizaremos ICs para estimar duas métricas sobre os usuários do LastFM em ger
 
 ###1. Qual a proporção de novos artistas em geral escutada por usuários?
 
+Adicionando um novo atributo que representa a proporção de artistas novos escutada pelos usuários nos últimos meses
+
 ```{r}
 amostra <- lastfm %>% mutate(proporcao = news/(old + news))
 ```
 
-Definindo funções
+Definindo funções necessárias:
+
+Função theta para proporção: Calcula a média amostral
+
+Função bootstrap: Usa a tabela e coleta amostras de mesmo tamanho da amostra original com reposição
 
 ```{r}
 
@@ -61,11 +67,18 @@ funcao_theta_proporcao = function(df) {
 
 bootstrap = function(df){
   proporcoes = df %>% pull(proporcao)
-  boot <- sample(proporcoes,           # amostre dos dados
-                   size = NROW(proporcoes), # tamanho igual ao recebido
-                   replace = TRUE) # aqui é o bootstrap
+  boot <- sample(proporcoes,           
+                   size = NROW(proporcoes),
+                   replace = TRUE)
   return(mean(boot))
 }
+```
+
+A proporção média da amostra é 0.24, ou seja, para essa amostra em média 24% dos artistas escutados são novos.
+
+```{r}
+theta_c = funcao_theta_proporcao(amostra)
+theta_c
 ```
 
 Fazendo as reamostragens com 4000 repetições
@@ -73,25 +86,38 @@ Fazendo as reamostragens com 4000 repetições
 ```{r}
 set.seed(12345)
 
-theta_c = funcao_theta_proporcao(amostra)
-
 repeticoes = 4000
 
 reamostragens = tibble(i = 1:repeticoes) %>% 
   mutate(theta_c_s = map_dbl(i, ~ bootstrap(amostra)))
 ```
 
-Calculando I.C do erro
+Calculando I.C do erro:
+
+Usando um nível de confiança de 95%, vamos calcular o error inferior e o erro superior das 4000 repetições em relação a média amostral. Como mostra a distribuição e conforme esperado, o erro amostral concentra-se próximo do 0.
+
 
 ```{r}
-intervalo = reamostragens %>% 
-  mutate(erro = theta_c_s - theta_c) %>% 
+
+
+erro.amostral = reamostragens %>% 
+  mutate(erro = theta_c_s - theta_c)
+
+intervalo = erro.amostral %>%
   summarise(erro_i = quantile(erro, .025), 
             erro_s = quantile(erro, .975))
 intervalo
+
+erro.amostral %>%
+  ggplot(aes(erro)) +
+  geom_histogram(fill = "white",
+                 colour = "darkblue") +
+  labs(title = "Distribuição do erro amostral")
 ```
 
-Calculando I.C da proporção média
+Calculando I.C da proporção média:
+
+Com os erros inferiores e superiores, nós temos o intervalo de confiança para proporção. O resultado mostra que com 95% de confiança, os usuários ouviram em média de 23% a 25% artistas novos. Espera-se portanto que em 95% das vezes a média real da proporção esteja dentro desse intervalo.
 
 ```{r}
 ci = intervalo %>% 
@@ -100,7 +126,7 @@ ci = intervalo %>%
 ci
 ```
 
-Usando uma função pronta para fazer bootstrap
+Usando uma função pronta para fazer bootstrap com o mesmo nível de confiança e mesmo número de replicações, obtemos um resultado igual (I.C entre 23% e 25%)
 
 ```{r}
 set.seed(12345)
@@ -126,7 +152,11 @@ ci.2
 
 ### 2. Para os usuários que gostam de música muito pop (mediana_pop > 5), qual a correlação entre a popularidade mediana dos artistas escutado e a proporção dos artistas escutados que eram novos.
 
-Definindo as funções
+O primeiro passo é filtrar os usuários que gostam de música muito pop. Depois disso, duas funções são necessárias:
+
+Função theta para correlação: Calcula a correlação entre as variáveis mediana da popularidade e proporção usando o método de spearman, que busca encontrar uma relação não necessariamente linear entre as duas variáveis.
+
+Função bootstrap: Usa a tabela e coleta amostras de mesmo tamanhos da amostra original com reposição
 
 ```{r}
 
@@ -146,28 +176,48 @@ bootstrap_cor = function(df){
 }
 ```
 
+A correlação observada na amostra é de 0.002.
+
+```{r}
+theta_cor = funcao_theta_cor(amostra.pop)
+theta_cor
+```
+
+
 Fazendo as reamostragens com 4000 repetições
 
 ```{r}
 set.seed(12345)
 
-theta_cor = funcao_theta_cor(amostra.pop)
-
 reamostragens.cor = tibble(i = 1:repeticoes) %>% 
   mutate(theta_c_s = map_dbl(i, ~ bootstrap_cor(amostra.pop)))
 ```
 
-Calculando I.C do erro
+Calculando I.C do erro:
+
+Usando um nível de confiança de 95% temos o erro inferior e superior para essa correlação observada na amostra.
 
 ```{r}
-intervalo.cor = reamostragens.cor %>% 
-  mutate(erro = theta_c_s - theta_cor) %>% 
+
+erro.amostral.cor = reamostragens.cor %>% 
+  mutate(erro = theta_c_s - theta_cor)
+
+intervalo.cor = erro.amostral.cor %>% 
   summarise(erro_i = quantile(erro, .025), 
             erro_s = quantile(erro, .975))
 intervalo.cor
+
+
+erro.amostral.cor %>%
+  ggplot(aes(erro)) +
+  geom_histogram(fill = "white",
+                 colour = "darkblue") +
+  labs(title = "Distribuição do erro amostral")
 ```
 
-Calculando I.C da correlação entre as duas variáveis
+Calculando I.C da correlação entre as duas variáveis:
+
+Com os erros inferiores e superiores, nós temos o intervalo de confiança para correlação O resultado mostra com 95% de confiança, que a correlação entre o fato de o usuário gostar de músicas populares e a proporção de novos artistas escutadas por ele está entre -0.11 e 0.11. Com isso não podemos determinar com certeza se a correlação é positiva ou negativa, mas podemos concluir que é uma correlação muito fraca.
 
 ```{r}
 ci.cor = intervalo.cor %>% 
@@ -176,7 +226,7 @@ ci.cor = intervalo.cor %>%
 ci.cor
 ```
 
-Usando uma função pronta para fazer bootstrap
+Usando uma função pronta para fazer bootstrap com os mesmo parâmetros, obtemos resultados quase iguais (I.C entre -0.11 e 0.11)
 
 ```{r}
 set.seed(12345)
